@@ -6,11 +6,11 @@ HyQuery uses the same port as your game server by intercepting UDP packets with 
 
 ## Features
 
-- 🚀 **Zero Port Configuration** - Uses the same port as your game server (typically 5520)
-- 🔒 **Privacy Control** - Anonymous mode by default, optionally show player lists and plugins
-- 🎨 **Custom MOTD** - Support for Minecraft color codes in your MOTD
-- ⚡ **Binary Protocol** - Efficient binary format for fast queries
-- 🔌 **Easy Integration** - Simple UDP protocol for developers
+- **Zero Port Configuration** - Uses the same port as your game server (typically 5520)
+- **Privacy Control** - Anonymous mode by default, optionally show player lists and plugins
+- **Custom MOTD** - Support for Minecraft color codes in your MOTD
+- **Binary Protocol** - Efficient binary format for fast queries
+- **Easy Integration** - Simple UDP protocol for developers
 
 ## Installation
 
@@ -60,7 +60,9 @@ Configuration file: `mods/Hyvote_HyQuery/config.json`
 
 ### Minecraft Color Codes
 
-When `useCustomMotd` is enabled, you can use Minecraft formatting codes in your MOTD:
+When `useCustomMotd` is enabled, you can use Minecraft formatting codes in your MOTD.
+
+**Note:** These color codes currently have no impact on the in-game display. They are preserved in the query response for external tools such as server lists to display formatted MOTDs.
 
 **Colors:**
 - `§0` Black, `§1` Dark Blue, `§2` Dark Green, `§3` Dark Aqua
