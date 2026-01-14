@@ -17,7 +17,7 @@ HyQuery uses the same port as your game server by intercepting UDP packets with 
 ### For Server Administrators
 
 1. **Download HyQuery**
-   - Download the latest `hyquery-plugin-x.x.x.jar` from the [releases page](https://github.com/hyvote/HyQuery/releases)
+   - Download the latest `hyquery-plugin-x.x.x.jar` from the [releases page](https://github.com/hyvote/hyquery/releases)
 
 2. **Install the Plugin**
    ```bash
@@ -429,8 +429,8 @@ public class HyQueryClient {
 
 ```bash
 # Clone the repository
-git clone https://github.com/hyvote/HyQuery.git
-cd HyQuery
+git clone https://github.com/hyvote/hyquery.git
+cd hyquery
 
 # Place HytaleServer.jar in the project root
 cp /path/to/HytaleServer.jar .
@@ -473,4 +473,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Support
 
-For issues, questions, or feature requests, please open an issue on the [GitHub repository](https://github.com/hyvote/HyQuery/issues).
+For issues, questions, or feature requests, please open an issue on the [GitHub repository](https://github.com/hyvote/hyquery/issues).
