@@ -29,6 +29,8 @@ public class HyQueryPlugin extends JavaPlugin {
 
     private HyQueryConfig config;
     private HyQueryHandler queryHandler;
+    private HyQueryRateLimiter rateLimiter;
+    private HyQueryCache cache;
 
     public HyQueryPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -49,8 +51,22 @@ public class HyQueryPlugin extends JavaPlugin {
 
         getLogger().at(Level.INFO).log("HyQuery starting...");
 
+        // Initialize rate limiter
+        if (config.rateLimitEnabled()) {
+            rateLimiter = new HyQueryRateLimiter(config.rateLimitBurst(), config.rateLimitPerSecond());
+            getLogger().at(Level.INFO).log("Rate limiting enabled: %d req/s, burst %d",
+                config.rateLimitPerSecond(), config.rateLimitBurst());
+        }
+
+        // Initialize response cache
+        if (config.cacheEnabled()) {
+            cache = new HyQueryCache(this, config.cacheTtlSeconds());
+            getLogger().at(Level.INFO).log("Response caching enabled: %d second TTL", config.cacheTtlSeconds());
+        }
+
         // Create the query handler
-        queryHandler = new HyQueryHandler(this, java.util.logging.Logger.getLogger("HyQuery"));
+        queryHandler = new HyQueryHandler(this, java.util.logging.Logger.getLogger("HyQuery"),
+            rateLimiter, cache);
 
         // Register handler on all listener channels
         int registeredCount = 0;
@@ -157,13 +173,24 @@ public class HyQueryPlugin extends JavaPlugin {
             if (Files.exists(configPath)) {
                 String json = Files.readString(configPath);
                 HyQueryConfig loaded = GSON.fromJson(json, HyQueryConfig.class);
+
+                // Use defaults for any null/missing fields (backwards compatibility)
                 this.config = new HyQueryConfig(
                     loaded.enabled(),
                     loaded.showPlayerList(),
                     loaded.showPlugins(),
                     loaded.useCustomMotd(),
-                    loaded.customMotd()
+                    loaded.customMotd() != null ? loaded.customMotd() : defaults.customMotd(),
+                    // New security fields - default to enabled if missing from old config
+                    loaded.rateLimitPerSecond() > 0 ? loaded.rateLimitEnabled() : defaults.rateLimitEnabled(),
+                    loaded.rateLimitPerSecond() > 0 ? loaded.rateLimitPerSecond() : defaults.rateLimitPerSecond(),
+                    loaded.rateLimitBurst() > 0 ? loaded.rateLimitBurst() : defaults.rateLimitBurst(),
+                    loaded.cacheTtlSeconds() > 0 ? loaded.cacheEnabled() : defaults.cacheEnabled(),
+                    loaded.cacheTtlSeconds() > 0 ? loaded.cacheTtlSeconds() : defaults.cacheTtlSeconds()
                 );
+
+                // Rewrite config to include new fields if they were missing
+                Files.writeString(configPath, GSON.toJson(config));
                 getLogger().at(Level.INFO).log("Loaded configuration from %s", configPath);
             } else {
                 this.config = defaults;

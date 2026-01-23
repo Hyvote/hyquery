@@ -5,6 +5,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.socket.DatagramPacket;
 
+import java.net.InetAddress;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -15,15 +16,30 @@ import java.util.logging.Logger;
  * It checks if incoming packets are HyQuery requests (HYQUERY\0 magic bytes).
  * If so, it handles the query and responds.
  * Otherwise, it passes the packet to the next handler (QUIC codec).
+ *
+ * Security features:
+ * - Per-IP rate limiting to mitigate reflection/amplification attacks
+ * - Response caching to reduce CPU usage under load
  */
 public class HyQueryHandler extends ChannelInboundHandlerAdapter {
 
     private final Logger logger;
     private final HyQueryPlugin plugin;
+    private final HyQueryRateLimiter rateLimiter;
+    private final HyQueryCache cache;
+    private final boolean rateLimitEnabled;
+    private final boolean cacheEnabled;
 
-    public HyQueryHandler(HyQueryPlugin plugin, Logger logger) {
+    public HyQueryHandler(HyQueryPlugin plugin, Logger logger,
+                          HyQueryRateLimiter rateLimiter, HyQueryCache cache) {
         this.plugin = plugin;
         this.logger = logger;
+        this.rateLimiter = rateLimiter;
+        this.cache = cache;
+
+        HyQueryConfig config = plugin.getQueryConfig();
+        this.rateLimitEnabled = config.rateLimitEnabled();
+        this.cacheEnabled = config.cacheEnabled();
     }
 
     @Override
@@ -48,15 +64,31 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
 
     private void handleQuery(ChannelHandlerContext ctx, DatagramPacket packet) {
         ByteBuf content = packet.content();
+        InetAddress senderAddress = packet.sender().getAddress();
 
         try {
+            // Check rate limit before processing
+            if (rateLimitEnabled && !rateLimiter.tryAcquire(senderAddress)) {
+                logger.log(Level.FINE, "Rate limited query from " + packet.sender());
+                return;
+            }
+
             byte queryType = HyQueryProtocol.getQueryType(content);
             ByteBuf response;
 
-            if (queryType == HyQueryProtocol.TYPE_FULL) {
-                response = HyQueryProtocol.buildFullResponse(plugin);
+            // Use cached response if caching is enabled
+            if (cacheEnabled) {
+                if (queryType == HyQueryProtocol.TYPE_FULL) {
+                    response = cache.getFullResponse();
+                } else {
+                    response = cache.getBasicResponse();
+                }
             } else {
-                response = HyQueryProtocol.buildBasicResponse(plugin);
+                if (queryType == HyQueryProtocol.TYPE_FULL) {
+                    response = HyQueryProtocol.buildFullResponse(plugin);
+                } else {
+                    response = HyQueryProtocol.buildBasicResponse(plugin);
+                }
             }
 
             // Send response back to sender

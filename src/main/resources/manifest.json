@@ -1,7 +1,7 @@
 {
   "Group": "Hyvote",
   "Name": "HyQuery",
-  "Version": "1.0.0",
+  "Version": "1.1.0",
   "Description": "UDP query protocol for Hytale servers - allows external tools to query server info",
   "Author": "Hyvote",
   "Main": "com.hytalefinder.hyquery.HyQueryPlugin",

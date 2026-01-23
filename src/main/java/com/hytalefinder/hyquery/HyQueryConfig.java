@@ -13,18 +13,29 @@ package com.hytalefinder.hyquery;
  * @param showPlayerList    Whether to show online player names in responses.
  * @param showPlugins       Whether to show installed plugins list in responses.
  * @param useCustomMotd     Whether to use custom MOTD instead of server config MOTD.
- * @param customMotd        Custom MOTD with Minecraft color code support (e.g., §aGreen §lBold).
+ * @param customMotd        Custom MOTD with Minecraft color code support (e.g., section-sign a for green, section-sign l for bold).
+ * @param rateLimitEnabled  Whether to enable per-IP rate limiting.
+ * @param rateLimitPerSecond Maximum requests per second per IP address.
+ * @param rateLimitBurst    Maximum burst capacity (requests allowed in a quick burst).
+ * @param cacheEnabled      Whether to enable response caching.
+ * @param cacheTtlSeconds   How long to cache responses in seconds.
  */
 public record HyQueryConfig(
     boolean enabled,
     boolean showPlayerList,
     boolean showPlugins,
     boolean useCustomMotd,
-    String customMotd
+    String customMotd,
+    boolean rateLimitEnabled,
+    int rateLimitPerSecond,
+    int rateLimitBurst,
+    boolean cacheEnabled,
+    int cacheTtlSeconds
 ) {
     /**
      * Returns a HyQueryConfig with default values.
      * By default, anonymous mode only shows basic info (name, motd, players count, version).
+     * Rate limiting and caching are enabled by default for security.
      */
     public static HyQueryConfig defaults() {
         return new HyQueryConfig(
@@ -32,7 +43,12 @@ public record HyQueryConfig(
             false,          // showPlayerList (anonymous mode default)
             false,          // showPlugins (anonymous mode default)
             false,          // useCustomMotd (use server config by default)
-            "§aWelcome to §lMy Server§r!"  // customMotd (example with color codes)
+            "Welcome to My Server!",  // customMotd (example)
+            true,           // rateLimitEnabled (security default)
+            10,             // rateLimitPerSecond (10 requests/sec per IP)
+            20,             // rateLimitBurst (allow short bursts)
+            true,           // cacheEnabled (security default)
+            5               // cacheTtlSeconds (refresh every 5 seconds)
         );
     }
 }
