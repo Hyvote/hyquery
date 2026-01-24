@@ -25,6 +25,8 @@ public class HyQueryPlugin extends JavaPlugin {
 
     private static final String CONFIG_FILE = "config.json";
     private static final String HANDLER_NAME = "hyquery-handler";
+    private static final String DATA_FOLDER = "HyQuery";
+    private static final String LEGACY_DATA_FOLDER = "Hyvote_HyQuery";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private HyQueryConfig config;
@@ -166,7 +168,23 @@ public class HyQueryPlugin extends JavaPlugin {
 
     private void loadConfig() {
         getLogger().at(Level.INFO).log("Loading configuration...");
-        Path configPath = getDataDirectory().resolve(CONFIG_FILE);
+
+        // Get the mods directory (parent of the default data directory)
+        Path modsDir = getDataDirectory().getParent();
+        Path dataDir = modsDir.resolve(DATA_FOLDER);
+        Path legacyDir = modsDir.resolve(LEGACY_DATA_FOLDER);
+
+        // Migrate from legacy folder if it exists and new folder doesn't
+        if (Files.exists(legacyDir) && !Files.exists(dataDir)) {
+            try {
+                Files.move(legacyDir, dataDir);
+                getLogger().at(Level.INFO).log("Migrated config folder from %s to %s", LEGACY_DATA_FOLDER, DATA_FOLDER);
+            } catch (IOException e) {
+                getLogger().at(Level.WARNING).log("Failed to migrate config folder: %s", e.getMessage());
+            }
+        }
+
+        Path configPath = dataDir.resolve(CONFIG_FILE);
         HyQueryConfig defaults = HyQueryConfig.defaults();
 
         try {
@@ -194,7 +212,7 @@ public class HyQueryPlugin extends JavaPlugin {
                 getLogger().at(Level.INFO).log("Loaded configuration from %s", configPath);
             } else {
                 this.config = defaults;
-                Files.createDirectories(configPath.getParent());
+                Files.createDirectories(dataDir);
                 Files.writeString(configPath, GSON.toJson(config));
                 getLogger().at(Level.INFO).log("Created default configuration at %s", configPath);
             }

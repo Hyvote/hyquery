@@ -26,17 +26,17 @@ HyQuery uses the same port as your game server by intercepting UDP packets with 
    ```
 
 3. **Start Your Server**
-   - The plugin will automatically create a configuration file at `mods/Hyvote_HyQuery/config.json`
+   - The plugin will automatically create a configuration file at `mods/HyQuery/config.json`
 
 4. **Configure (Optional)**
-   - Edit `mods/Hyvote_HyQuery/config.json` to customize behavior (see Configuration section)
+   - Edit `mods/HyQuery/config.json` to customize behavior (see Configuration section)
 
 5. **Restart the Server**
    - Changes to the configuration require a server restart
 
 ## Configuration
 
-Configuration file: `mods/Hyvote_HyQuery/config.json`
+Configuration file: `mods/HyQuery/config.json`
 
 ```json
 {
