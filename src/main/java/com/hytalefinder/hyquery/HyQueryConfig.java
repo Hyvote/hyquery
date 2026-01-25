@@ -19,6 +19,7 @@ package com.hytalefinder.hyquery;
  * @param rateLimitBurst    Maximum burst capacity (requests allowed in a quick burst).
  * @param cacheEnabled      Whether to enable response caching.
  * @param cacheTtlSeconds   How long to cache responses in seconds.
+ * @param network           Network mode configuration for multi-server setups.
  */
 public record HyQueryConfig(
     boolean enabled,
@@ -30,12 +31,14 @@ public record HyQueryConfig(
     int rateLimitPerSecond,
     int rateLimitBurst,
     boolean cacheEnabled,
-    int cacheTtlSeconds
+    int cacheTtlSeconds,
+    HyQueryNetworkConfig network
 ) {
     /**
      * Returns a HyQueryConfig with default values.
      * By default, anonymous mode only shows basic info (name, motd, players count, version).
      * Rate limiting and caching are enabled by default for security.
+     * Network mode is disabled by default.
      */
     public static HyQueryConfig defaults() {
         return new HyQueryConfig(
@@ -48,7 +51,29 @@ public record HyQueryConfig(
             10,             // rateLimitPerSecond (10 requests/sec per IP)
             20,             // rateLimitBurst (allow short bursts)
             true,           // cacheEnabled (security default)
-            5               // cacheTtlSeconds (refresh every 5 seconds)
+            5,              // cacheTtlSeconds (refresh every 5 seconds)
+            null            // network (disabled by default)
         );
+    }
+
+    /**
+     * Check if network mode is enabled.
+     */
+    public boolean isNetworkEnabled() {
+        return network != null && network.enabled();
+    }
+
+    /**
+     * Check if this server is a network primary.
+     */
+    public boolean isNetworkPrimary() {
+        return network != null && network.isPrimary();
+    }
+
+    /**
+     * Check if this server is a network worker.
+     */
+    public boolean isNetworkWorker() {
+        return network != null && network.isWorker();
     }
 }

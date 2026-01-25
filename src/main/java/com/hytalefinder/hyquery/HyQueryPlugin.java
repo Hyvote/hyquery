@@ -20,6 +20,10 @@ import java.util.logging.Level;
  *
  * Uses the same port as the game server by intercepting UDP packets
  * with magic bytes (HYQUERY\0) before the QUIC codec processes them.
+ *
+ * Supports network mode for multi-server setups:
+ * - Primary: Aggregates status from worker servers
+ * - Worker: Sends status updates to primary server
  */
 public class HyQueryPlugin extends JavaPlugin {
 
@@ -33,6 +37,7 @@ public class HyQueryPlugin extends JavaPlugin {
     private HyQueryHandler queryHandler;
     private HyQueryRateLimiter rateLimiter;
     private HyQueryCache cache;
+    private HyQueryNetworkManager networkManager;
 
     public HyQueryPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -66,6 +71,13 @@ public class HyQueryPlugin extends JavaPlugin {
             getLogger().at(Level.INFO).log("Response caching enabled: %d second TTL", config.cacheTtlSeconds());
         }
 
+        // Initialize network manager (if network mode enabled)
+        if (config.isNetworkEnabled()) {
+            networkManager = new HyQueryNetworkManager(this, config.network(),
+                java.util.logging.Logger.getLogger("HyQuery"));
+            networkManager.start();
+        }
+
         // Create the query handler
         queryHandler = new HyQueryHandler(this, java.util.logging.Logger.getLogger("HyQuery"),
             rateLimiter, cache);
@@ -97,6 +109,14 @@ public class HyQueryPlugin extends JavaPlugin {
             getLogger().at(Level.INFO).log("  - Max players: %d", getMaxPlayers());
             getLogger().at(Level.INFO).log("  - Show player list: %s", config.showPlayerList());
             getLogger().at(Level.INFO).log("  - Show plugins: %s", config.showPlugins());
+
+            // Log network mode status
+            if (config.isNetworkPrimary()) {
+                getLogger().at(Level.INFO).log("  - Network mode: PRIMARY");
+            } else if (config.isNetworkWorker()) {
+                getLogger().at(Level.INFO).log("  - Network mode: WORKER (-> %s:%d)",
+                    config.network().primaryHost(), config.network().primaryPort());
+            }
         } else {
             getLogger().at(Level.WARNING).log("HyQuery failed to register on any channels");
         }
@@ -104,6 +124,12 @@ public class HyQueryPlugin extends JavaPlugin {
 
     @Override
     protected void shutdown() {
+        // Stop network manager
+        if (networkManager != null) {
+            networkManager.stop();
+            networkManager = null;
+        }
+
         // Remove handler from all channels
         for (Channel channel : ServerManager.get().getListeners()) {
             try {
@@ -120,6 +146,14 @@ public class HyQueryPlugin extends JavaPlugin {
 
     public HyQueryConfig getQueryConfig() {
         return config;
+    }
+
+    public HyQueryCache getCache() {
+        return cache;
+    }
+
+    public HyQueryNetworkManager getNetworkManager() {
+        return networkManager;
     }
 
     /**
@@ -204,7 +238,9 @@ public class HyQueryPlugin extends JavaPlugin {
                     loaded.rateLimitPerSecond() > 0 ? loaded.rateLimitPerSecond() : defaults.rateLimitPerSecond(),
                     loaded.rateLimitBurst() > 0 ? loaded.rateLimitBurst() : defaults.rateLimitBurst(),
                     loaded.cacheTtlSeconds() > 0 ? loaded.cacheEnabled() : defaults.cacheEnabled(),
-                    loaded.cacheTtlSeconds() > 0 ? loaded.cacheTtlSeconds() : defaults.cacheTtlSeconds()
+                    loaded.cacheTtlSeconds() > 0 ? loaded.cacheTtlSeconds() : defaults.cacheTtlSeconds(),
+                    // Network config - apply defaults to nested object
+                    HyQueryNetworkConfig.withDefaults(loaded.network())
                 );
 
                 // Rewrite config to include new fields if they were missing
