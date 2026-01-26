@@ -67,10 +67,31 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
                 handleStatusPacket(ctx, packet);
                 return;
             }
+
+            // Check if packet starts with "HY" - it's a HyQuery packet we don't handle
+            // Drop it instead of passing to QUIC codec (which would cause SSL errors)
+            if (isHyQueryPacket(content)) {
+                logger.log(Level.FINE, "Dropping unhandled HyQuery packet from " + packet.sender() +
+                    " (this server may not be configured to handle this packet type)");
+                packet.release();
+                return;
+            }
         }
 
         // Not a HyQuery packet, pass to next handler (QUIC codec)
         ctx.fireChannelRead(msg);
+    }
+
+    /**
+     * Check if the packet appears to be a HyQuery-related packet (starts with "HY").
+     * Used to drop packets we don't handle instead of passing to QUIC codec.
+     */
+    private boolean isHyQueryPacket(ByteBuf buf) {
+        if (buf.readableBytes() < 2) {
+            return false;
+        }
+        int readerIndex = buf.readerIndex();
+        return buf.getByte(readerIndex) == 'H' && buf.getByte(readerIndex + 1) == 'Y';
     }
 
     private void handleQuery(ChannelHandlerContext ctx, DatagramPacket packet) {
