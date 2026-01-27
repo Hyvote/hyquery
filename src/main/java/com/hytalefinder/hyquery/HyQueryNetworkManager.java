@@ -22,7 +22,10 @@ import java.util.logging.Logger;
  * Manages network mode functionality for HyQuery.
  *
  * For primary servers: maintains worker registry, processes status updates.
- * For worker servers: sends periodic status updates to primary.
+ * For worker servers: sends periodic status updates to primary server(s).
+ *
+ * Hub clustering: Workers can send updates to multiple primary servers,
+ * allowing any hub to answer queries with full network status.
  */
 public class HyQueryNetworkManager {
 
@@ -37,7 +40,7 @@ public class HyQueryNetworkManager {
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> updateTask;
     private DatagramChannel udpChannel;
-    private InetSocketAddress primaryAddress;
+    private List<InetSocketAddress> primaryAddresses;
 
     public HyQueryNetworkManager(HyQueryPlugin plugin, HyQueryNetworkConfig config, Logger logger) {
         this.plugin = plugin;
@@ -195,13 +198,31 @@ public class HyQueryNetworkManager {
     // ========== Worker Mode ==========
 
     private void startWorker() {
+        List<HyQueryPrimaryTarget> targets = config.getPrimaryTargets();
+        if (targets.isEmpty()) {
+            logger.log(Level.WARNING, "Network mode: WORKER - No primary servers configured!");
+            return;
+        }
+
         logger.log(Level.INFO, "Network mode: WORKER");
         logger.log(Level.INFO, "  - Worker ID: " + config.id());
-        logger.log(Level.INFO, "  - Primary: " + config.primaryHost() + ":" + config.primaryPort());
         logger.log(Level.INFO, "  - Update interval: " + config.updateIntervalSeconds() + "s");
 
+        // Build list of primary addresses
+        primaryAddresses = new ArrayList<>();
+        if (targets.size() == 1) {
+            logger.log(Level.INFO, "  - Primary: " + targets.get(0));
+        } else {
+            logger.log(Level.INFO, "  - Hub clustering: sending to " + targets.size() + " primaries");
+        }
+        for (HyQueryPrimaryTarget target : targets) {
+            primaryAddresses.add(new InetSocketAddress(target.host(), target.port()));
+            if (targets.size() > 1) {
+                logger.log(Level.INFO, "    - " + target);
+            }
+        }
+
         try {
-            primaryAddress = new InetSocketAddress(config.primaryHost(), config.primaryPort());
             udpChannel = DatagramChannel.open();
             udpChannel.configureBlocking(false);
 
@@ -240,36 +261,61 @@ public class HyQueryNetworkManager {
             } catch (Exception ignored) {}
             udpChannel = null;
         }
+        primaryAddresses = null;
     }
 
     private void sendStatusUpdate() {
+        if (primaryAddresses == null || primaryAddresses.isEmpty()) {
+            return;
+        }
+
         try {
             Universe universe = Universe.get();
             int playerCount = universe.getPlayerCount();
             int maxPlayers = plugin.getMaxPlayers();
 
-            // Build status packet
+            // Build status packet once
             ByteBuf buf = buildStatusPacket();
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
             buf.release();
 
-            // Send to primary
-            ByteBuffer byteBuffer = ByteBuffer.wrap(data);
-            int bytesSent = udpChannel.send(byteBuffer, primaryAddress);
+            // Send to all primary servers
+            int successCount = 0;
+            int failCount = 0;
 
-            if (bytesSent > 0) {
-                if (config.logStatusUpdates()) {
-                    logger.log(Level.INFO, "Sent status update to primary " + config.primaryHost() + ":" +
-                        config.primaryPort() + " (" + playerCount + "/" + maxPlayers + " players)");
+            for (InetSocketAddress primaryAddress : primaryAddresses) {
+                try {
+                    ByteBuffer byteBuffer = ByteBuffer.wrap(data);
+                    int bytesSent = udpChannel.send(byteBuffer, primaryAddress);
+
+                    if (bytesSent > 0) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                        logger.log(Level.WARNING, "Failed to send status update to " + primaryAddress + " - no bytes sent");
+                    }
+                } catch (Exception e) {
+                    failCount++;
+                    logger.log(Level.WARNING, "Failed to send status update to " + primaryAddress + " - " + e.getMessage());
                 }
-            } else {
-                logger.log(Level.WARNING, "Failed to send status update - no bytes sent");
+            }
+
+            // Log summary if logging is enabled
+            if (config.logStatusUpdates()) {
+                if (primaryAddresses.size() == 1) {
+                    if (successCount > 0) {
+                        logger.log(Level.INFO, "Sent status update to " + primaryAddresses.get(0) +
+                            " (" + playerCount + "/" + maxPlayers + " players)");
+                    }
+                } else {
+                    logger.log(Level.INFO, "Sent status update to " + successCount + "/" + primaryAddresses.size() +
+                        " primaries (" + playerCount + "/" + maxPlayers + " players)");
+                }
             }
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Failed to send status update to " + config.primaryHost() + ":" +
-                config.primaryPort() + " - " + e.getMessage());
+            logger.log(Level.WARNING, "Failed to build status update: " + e.getMessage());
         }
     }
 

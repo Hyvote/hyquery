@@ -58,6 +58,197 @@ Configuration file: `mods/HyQuery/config.json`
 | `useCustomMotd` | boolean | `false` | Use custom MOTD instead of server config MOTD |
 | `customMotd` | string | `"§aWelcome..."` | Custom MOTD with Minecraft color code support |
 
+### Security Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `rateLimitEnabled` | boolean | `true` | Enable per-IP rate limiting |
+| `rateLimitPerSecond` | int | `10` | Maximum requests per second per IP |
+| `rateLimitBurst` | int | `20` | Maximum burst requests allowed |
+| `cacheEnabled` | boolean | `true` | Enable response caching |
+| `cacheTtlSeconds` | int | `5` | Cache time-to-live in seconds |
+
+## Network Mode
+
+HyQuery supports multi-server network configurations with **primary** and **worker** roles. This allows server networks to aggregate player counts and information across multiple servers.
+
+### Architecture
+
+```
+                    ┌─────────────┐
+                    │   Primary   │ ◄── Query responses include
+                    │   (Hub)     │     all network players
+                    └──────▲──────┘
+                           │
+            ┌──────────────┼──────────────┐
+            │              │              │
+     ┌──────┴──────┐ ┌─────┴─────┐ ┌──────┴──────┐
+     │   Worker    │ │  Worker   │ │   Worker    │
+     │  (Game 1)   │ │ (Game 2)  │ │  (Game 3)   │
+     └─────────────┘ └───────────┘ └─────────────┘
+```
+
+- **Primary**: Receives status updates from workers, aggregates data for query responses
+- **Worker**: Sends periodic status updates to primary server(s)
+
+### Primary Server Configuration
+
+```json
+{
+  "enabled": true,
+  "showPlayerList": true,
+  "showPlugins": false,
+  "useCustomMotd": false,
+  "customMotd": "",
+  "rateLimitEnabled": true,
+  "rateLimitPerSecond": 10,
+  "rateLimitBurst": 20,
+  "cacheEnabled": true,
+  "cacheTtlSeconds": 5,
+  "network": {
+    "enabled": true,
+    "role": "primary",
+    "workerTimeoutSeconds": 30,
+    "workers": [
+      { "id": "game-1", "key": "your-secret-key-here" },
+      { "id": "game-2", "key": "your-secret-key-here" },
+      { "id": "minigame-*", "key": "shared-minigame-key" }
+    ],
+    "logStatusUpdates": false
+  }
+}
+```
+
+**Primary-specific options:**
+
+| Option | Description |
+|--------|-------------|
+| `workerTimeoutSeconds` | Seconds before marking a worker as offline |
+| `workers` | List of authorized workers with their IDs and HMAC keys |
+
+Worker IDs support wildcard matching with `*` (e.g., `minigame-*` matches `minigame-1`, `minigame-lobby`, etc.)
+
+### Worker Server Configuration (Single Primary)
+
+```json
+{
+  "enabled": true,
+  "showPlayerList": true,
+  "showPlugins": false,
+  "useCustomMotd": false,
+  "customMotd": "",
+  "rateLimitEnabled": true,
+  "rateLimitPerSecond": 10,
+  "rateLimitBurst": 20,
+  "cacheEnabled": true,
+  "cacheTtlSeconds": 5,
+  "network": {
+    "enabled": true,
+    "role": "worker",
+    "id": "game-1",
+    "primaryHost": "hub.example.com",
+    "primaryPort": 5520,
+    "key": "your-secret-key-here",
+    "updateIntervalSeconds": 5,
+    "logStatusUpdates": false
+  }
+}
+```
+
+**Worker-specific options:**
+
+| Option | Description |
+|--------|-------------|
+| `id` | Unique identifier for this worker (must match primary's workers list) |
+| `primaryHost` | Hostname or IP of the primary server |
+| `primaryPort` | Port of the primary server |
+| `key` | Shared HMAC secret (must match primary's key for this worker) |
+| `updateIntervalSeconds` | How often to send status updates |
+
+## Hub Clustering
+
+For networks with multiple hub servers (load-balanced or regional), workers can send status updates to **all** primary servers. This ensures any hub can answer queries with complete network data.
+
+### Hub Clustering Architecture
+
+```
+     ┌─────────────┐     ┌─────────────┐
+     │  Primary A  │     │  Primary B  │  ◄── Both hubs have
+     │   (US Hub)  │     │  (EU Hub)   │      complete network data
+     └──────▲──────┘     └──────▲──────┘
+            │                   │
+            └─────────┬─────────┘
+                      │
+            ┌─────────┼─────────┐
+            │         │         │
+     ┌──────┴───┐ ┌───┴───┐ ┌───┴──────┐
+     │ Worker 1 │ │ Wkr 2 │ │ Worker 3 │  ◄── Workers push to
+     └──────────┘ └───────┘ └──────────┘      ALL primaries
+```
+
+### Worker Configuration (Hub Clustering)
+
+Use the `primaries` array instead of single `primaryHost`/`primaryPort`:
+
+```json
+{
+  "enabled": true,
+  "showPlayerList": true,
+  "showPlugins": false,
+  "useCustomMotd": false,
+  "customMotd": "",
+  "rateLimitEnabled": true,
+  "rateLimitPerSecond": 10,
+  "rateLimitBurst": 20,
+  "cacheEnabled": true,
+  "cacheTtlSeconds": 5,
+  "network": {
+    "enabled": true,
+    "role": "worker",
+    "id": "game-1",
+    "primaries": [
+      { "host": "us-hub.example.com", "port": 5520 },
+      { "host": "eu-hub.example.com", "port": 5520 }
+    ],
+    "key": "your-secret-key-here",
+    "updateIntervalSeconds": 5,
+    "logStatusUpdates": false
+  }
+}
+```
+
+**Notes:**
+- The `primaries` list takes precedence over legacy `primaryHost`/`primaryPort`
+- All primaries must have this worker authorized with the same key
+- Status updates are sent to all primaries simultaneously
+- If some primaries are unreachable, updates continue to the available ones
+
+### Network Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `network.enabled` | boolean | `false` | Enable network mode |
+| `network.role` | string | `"worker"` | Server role: `"primary"` or `"worker"` |
+| `network.logStatusUpdates` | boolean | `false` | Log status update activity |
+
+**Primary-only:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `network.workerTimeoutSeconds` | int | `30` | Seconds before worker marked offline |
+| `network.workers` | array | `[]` | Authorized workers `[{id, key}, ...]` |
+
+**Worker-only:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `network.id` | string | `"server-1"` | This worker's unique identifier |
+| `network.primaryHost` | string | `"localhost"` | Legacy: single primary host |
+| `network.primaryPort` | int | `5520` | Legacy: single primary port |
+| `network.primaries` | array | `[]` | Hub clustering: `[{host, port}, ...]` |
+| `network.key` | string | `"change-me"` | Shared HMAC secret |
+| `network.updateIntervalSeconds` | int | `5` | Update interval in seconds |
+
 ### Minecraft Color Codes
 
 When `useCustomMotd` is enabled, you can use Minecraft formatting codes in your MOTD.
