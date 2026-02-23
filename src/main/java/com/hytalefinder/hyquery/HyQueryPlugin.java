@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.hypixel.hytale.server.core.HytaleServer;
 import com.hypixel.hytale.server.core.Options;
+import com.hypixel.hytale.server.core.entity.entities.Player;
+import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
 import com.hypixel.hytale.server.core.io.ServerManager;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
@@ -11,6 +13,9 @@ import io.netty.channel.Channel;
 
 import javax.annotation.Nonnull;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.logging.Level;
@@ -33,14 +38,18 @@ public class HyQueryPlugin extends JavaPlugin {
     private static final String LEGACY_DATA_FOLDER = "Hyvote_HyQuery";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
+    private final String pluginVersion;
     private HyQueryConfig config;
     private HyQueryHandler queryHandler;
     private HyQueryRateLimiter rateLimiter;
     private HyQueryCache cache;
     private HyQueryNetworkManager networkManager;
+    private volatile boolean updateAvailable = false;
+    private volatile String latestVersion = null;
 
     public HyQueryPlugin(@Nonnull JavaPluginInit init) {
         super(init);
+        this.pluginVersion = loadVersionFromManifest();
     }
 
     @Override
@@ -120,6 +129,9 @@ public class HyQueryPlugin extends JavaPlugin {
         } else {
             getLogger().at(Level.WARNING).log("HyQuery failed to register on any channels");
         }
+
+        registerEventListeners();
+        checkForUpdates();
     }
 
     @Override
@@ -154,6 +166,18 @@ public class HyQueryPlugin extends JavaPlugin {
 
     public HyQueryNetworkManager getNetworkManager() {
         return networkManager;
+    }
+
+    public String getPluginVersion() {
+        return pluginVersion;
+    }
+
+    public boolean isUpdateAvailable() {
+        return updateAvailable;
+    }
+
+    public String getLatestVersion() {
+        return latestVersion;
     }
 
     /**
@@ -255,6 +279,59 @@ public class HyQueryPlugin extends JavaPlugin {
         } catch (IOException e) {
             getLogger().at(Level.WARNING).log("Failed to load/save config, using defaults: %s", e.getMessage());
             this.config = defaults;
+        }
+    }
+
+    private String loadVersionFromManifest() {
+        try (InputStream is = getClass().getResourceAsStream("/manifest.json")) {
+            if (is == null) {
+                getLogger().at(Level.WARNING).log("manifest.json not found, using fallback version");
+                return "unknown";
+            }
+
+            try (InputStreamReader reader = new InputStreamReader(is, StandardCharsets.UTF_8)) {
+                ManifestInfo manifest = GSON.fromJson(reader, ManifestInfo.class);
+                return manifest != null && manifest.version() != null ? manifest.version() : "unknown";
+            }
+        } catch (IOException e) {
+            getLogger().at(Level.WARNING).log("Failed to read manifest.json: %s", e.getMessage());
+            return "unknown";
+        }
+    }
+
+    private void registerEventListeners() {
+        getEventRegistry().registerGlobal(PlayerReadyEvent.class, this::onPlayerReady);
+        getLogger().at(Level.INFO).log("Registered player ready event listener");
+    }
+
+    private void checkForUpdates() {
+        UpdateChecker.checkForUpdate(this, pluginVersion).thenAccept(newVersion -> {
+            if (newVersion != null) {
+                this.updateAvailable = true;
+                this.latestVersion = newVersion;
+                UpdateNotificationUtil.logUpdateAvailable(this, newVersion);
+            }
+        });
+    }
+
+    private void onPlayerReady(PlayerReadyEvent event) {
+        if (!updateAvailable || latestVersion == null) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        if (player.hasPermission("hyquery.admin")
+                || player.hasPermission("hyquery.admin.update_notifications")) {
+            UpdateNotificationUtil.sendUpdateNotification(this, player, latestVersion);
+            getLogger().at(Level.FINE).log(
+                    "Notified player %s about available update",
+                    player.getDisplayName());
+        }
+    }
+
+    private record ManifestInfo(String Version) {
+        String version() {
+            return Version;
         }
     }
 }
