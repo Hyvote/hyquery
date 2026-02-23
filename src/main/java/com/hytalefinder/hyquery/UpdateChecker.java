@@ -17,6 +17,7 @@ import java.util.logging.Level;
 public final class UpdateChecker {
 
     private static final String GITHUB_API_URL = "https://api.github.com/repos/Hyvote/hyquery/releases/latest";
+    private static final String CURSEFORGE_URL = "https://www.curseforge.com/hytale/mods/hyquery";
     private static final String GITHUB_RELEASES_URL = "https://github.com/Hyvote/hyquery/releases/latest";
     private static final Gson GSON = new Gson();
 
@@ -25,6 +26,10 @@ public final class UpdateChecker {
     private static final long CACHE_DURATION_MS = 10 * 60 * 1000;
 
     private UpdateChecker() {
+    }
+
+    public static String getCurseForgeUrl() {
+        return CURSEFORGE_URL;
     }
 
     public static String getGitHubReleasesUrl() {
