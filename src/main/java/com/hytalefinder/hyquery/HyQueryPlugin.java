@@ -2,6 +2,8 @@ package com.hytalefinder.hyquery;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.hypixel.hytale.server.core.HytaleServer;
 import com.hypixel.hytale.server.core.Options;
 import com.hypixel.hytale.server.core.entity.entities.Player;
@@ -118,6 +120,11 @@ public class HyQueryPlugin extends JavaPlugin {
             getLogger().at(Level.INFO).log("  - Max players: %d", getMaxPlayers());
             getLogger().at(Level.INFO).log("  - Show player list: %s", config.showPlayerList());
             getLogger().at(Level.INFO).log("  - Show plugins: %s", config.showPlugins());
+            getLogger().at(Level.INFO).log("  - V1 enabled: %s", config.v1Enabled());
+            getLogger().at(Level.INFO).log("  - V2 enabled: %s", config.v2Enabled());
+            if (config.v2Enabled()) {
+                getLogger().at(Level.INFO).log("  - V2 challenge validity: %ds", config.challengeTokenValiditySeconds());
+            }
 
             // Log network mode status
             if (config.isNetworkPrimary()) {
@@ -248,7 +255,11 @@ public class HyQueryPlugin extends JavaPlugin {
         try {
             if (Files.exists(configPath)) {
                 String json = Files.readString(configPath);
-                HyQueryConfig loaded = GSON.fromJson(json, HyQueryConfig.class);
+                JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+                HyQueryConfig loaded = GSON.fromJson(root, HyQueryConfig.class);
+                if (loaded == null) {
+                    loaded = defaults;
+                }
 
                 // Use defaults for any null/missing fields (backwards compatibility)
                 this.config = new HyQueryConfig(
@@ -263,6 +274,14 @@ public class HyQueryPlugin extends JavaPlugin {
                     loaded.rateLimitBurst() > 0 ? loaded.rateLimitBurst() : defaults.rateLimitBurst(),
                     loaded.cacheTtlSeconds() > 0 ? loaded.cacheEnabled() : defaults.cacheEnabled(),
                     loaded.cacheTtlSeconds() > 0 ? loaded.cacheTtlSeconds() : defaults.cacheTtlSeconds(),
+                    root.has("v1Enabled") ? loaded.v1Enabled() : defaults.v1Enabled(),
+                    root.has("v2Enabled") ? loaded.v2Enabled() : defaults.v2Enabled(),
+                    loaded.challengeTokenValiditySeconds() > 0
+                        ? loaded.challengeTokenValiditySeconds()
+                        : defaults.challengeTokenValiditySeconds(),
+                    root.has("challengeSecret")
+                        ? (loaded.challengeSecret() != null ? loaded.challengeSecret() : defaults.challengeSecret())
+                        : defaults.challengeSecret(),
                     // Network config - apply defaults to nested object
                     HyQueryNetworkConfig.withDefaults(loaded.network())
                 );
@@ -276,7 +295,7 @@ public class HyQueryPlugin extends JavaPlugin {
                 Files.writeString(configPath, GSON.toJson(config));
                 getLogger().at(Level.INFO).log("Created default configuration at %s", configPath);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             getLogger().at(Level.WARNING).log("Failed to load/save config, using defaults: %s", e.getMessage());
             this.config = defaults;
         }

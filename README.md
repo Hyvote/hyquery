@@ -10,6 +10,7 @@ HyQuery uses the same port as your game server by intercepting UDP packets with 
 - **Privacy Control** - Anonymous mode by default, optionally show player lists and plugins
 - **Custom MOTD** - Support for Minecraft color codes in your MOTD
 - **Binary Protocol** - Efficient binary format for fast queries
+- **OneQuery V2 Support** - Challenge-protected `ONEQUERY` / `HYQUERY2` queries
 - **Easy Integration** - Simple UDP protocol for developers
 
 ## Installation
@@ -44,7 +45,11 @@ Configuration file: `mods/HyQuery/config.json`
   "showPlayerList": false,
   "showPlugins": false,
   "useCustomMotd": false,
-  "customMotd": "§aWelcome to §l§cHytale§r§a! §6Enjoy your stay!"
+  "customMotd": "§aWelcome to §l§cHytale§r§a! §6Enjoy your stay!",
+  "v1Enabled": true,
+  "v2Enabled": true,
+  "challengeTokenValiditySeconds": 30,
+  "challengeSecret": ""
 }
 ```
 
@@ -67,6 +72,10 @@ Configuration file: `mods/HyQuery/config.json`
 | `rateLimitBurst` | int | `20` | Maximum burst requests allowed |
 | `cacheEnabled` | boolean | `true` | Enable response caching |
 | `cacheTtlSeconds` | int | `5` | Cache time-to-live in seconds |
+| `v1Enabled` | boolean | `true` | Enable legacy V1 (`HYQUERY\0`) request handling |
+| `v2Enabled` | boolean | `true` | Enable OneQuery V2 request handling |
+| `challengeTokenValiditySeconds` | int | `30` | V2 challenge validity window in seconds |
+| `challengeSecret` | string | `""` | Optional V2 challenge secret (blank uses an ephemeral secret each restart) |
 
 ## Network Mode
 
@@ -272,6 +281,18 @@ When `useCustomMotd` is enabled, you can use Minecraft formatting codes in your 
 ## Developer Integration
 
 ### Protocol Specification
+
+HyQuery supports both protocol families:
+- **V1 (legacy)**: `HYQUERY\0` -> `HYREPLY\0`
+- **V2 (OneQuery)**: `ONEQUERY` / `HYQUERY2` with challenge-token flow
+
+V2 response magic follows request family:
+- `ONEQUERY` requests receive `ONEREPLY`
+- `HYQUERY2` requests receive `HYREPLY2`
+
+All V2 non-challenge requests require a valid challenge token tied to the sender IP.
+
+#### V1 (Legacy)
 
 HyQuery uses a simple binary protocol over UDP on the game server port (default: 5520).
 
@@ -616,7 +637,9 @@ public class HyQueryClient {
 
 - Java 25 or higher
 - Maven 3.6+
-- HytaleServer.jar (place in project root)
+- `HytaleServer.jar` in the project root
+
+> Note: `HytaleServer.jar` is a local build dependency and is not committed to this repository. Maven will fail to compile without it.
 
 ### Build Steps
 

@@ -29,6 +29,5 @@ buildNumber.properties
 .DS_Store
 Thumbs.db
 
-# Test scripts
-test_hyquery.py
-test_raw_response.py
+# Scripts
+scripts/
