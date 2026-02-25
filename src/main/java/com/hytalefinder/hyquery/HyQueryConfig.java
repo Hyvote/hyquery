@@ -19,6 +19,11 @@ package com.hytalefinder.hyquery;
  * @param rateLimitBurst    Maximum burst capacity (requests allowed in a quick burst).
  * @param cacheEnabled      Whether to enable response caching.
  * @param cacheTtlSeconds   How long to cache responses in seconds.
+ * @param v1Enabled         Whether legacy V1 request handling is enabled.
+ * @param v2Enabled         Whether OneQuery V2 request handling is enabled.
+ * @param challengeTokenValiditySeconds V2 challenge token validity period in seconds.
+ * @param challengeSecret   Optional V2 challenge secret (blank = ephemeral secret each start).
+ * @param authentication    OneQuery-compatible V2 endpoint access configuration.
  * @param network           Network mode configuration for multi-server setups.
  */
 public record HyQueryConfig(
@@ -32,6 +37,11 @@ public record HyQueryConfig(
     int rateLimitBurst,
     boolean cacheEnabled,
     int cacheTtlSeconds,
+    boolean v1Enabled,
+    boolean v2Enabled,
+    int challengeTokenValiditySeconds,
+    String challengeSecret,
+    HyQueryAuthConfig authentication,
     HyQueryNetworkConfig network
 ) {
     /**
@@ -52,6 +62,11 @@ public record HyQueryConfig(
             20,             // rateLimitBurst (allow short bursts)
             true,           // cacheEnabled (security default)
             5,              // cacheTtlSeconds (refresh every 5 seconds)
+            true,           // v1Enabled
+            true,           // v2Enabled
+            120,            // challengeTokenValiditySeconds
+            "",             // challengeSecret (ephemeral when empty)
+            HyQueryAuthConfig.fromLegacyShowPlayerList(false), // authentication
             null            // network (disabled by default)
         );
     }

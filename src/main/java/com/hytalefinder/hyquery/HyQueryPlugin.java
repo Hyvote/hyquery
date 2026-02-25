@@ -2,8 +2,12 @@ package com.hytalefinder.hyquery;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.hypixel.hytale.server.core.HytaleServer;
 import com.hypixel.hytale.server.core.Options;
+import com.hypixel.hytale.server.core.entity.entities.Player;
+import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
 import com.hypixel.hytale.server.core.io.ServerManager;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
@@ -11,6 +15,9 @@ import io.netty.channel.Channel;
 
 import javax.annotation.Nonnull;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.logging.Level;
@@ -33,14 +40,18 @@ public class HyQueryPlugin extends JavaPlugin {
     private static final String LEGACY_DATA_FOLDER = "Hyvote_HyQuery";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
+    private final String pluginVersion;
     private HyQueryConfig config;
     private HyQueryHandler queryHandler;
     private HyQueryRateLimiter rateLimiter;
     private HyQueryCache cache;
     private HyQueryNetworkManager networkManager;
+    private volatile boolean updateAvailable = false;
+    private volatile String latestVersion = null;
 
     public HyQueryPlugin(@Nonnull JavaPluginInit init) {
         super(init);
+        this.pluginVersion = loadVersionFromManifest();
     }
 
     @Override
@@ -109,6 +120,15 @@ public class HyQueryPlugin extends JavaPlugin {
             getLogger().at(Level.INFO).log("  - Max players: %d", getMaxPlayers());
             getLogger().at(Level.INFO).log("  - Show player list: %s", config.showPlayerList());
             getLogger().at(Level.INFO).log("  - Show plugins: %s", config.showPlugins());
+            getLogger().at(Level.INFO).log("  - V1 enabled: %s", config.v1Enabled());
+            getLogger().at(Level.INFO).log("  - V2 enabled: %s", config.v2Enabled());
+            if (config.v2Enabled()) {
+                getLogger().at(Level.INFO).log("  - V2 challenge validity: %ds", config.challengeTokenValiditySeconds());
+                HyQueryAuthPermissions publicAccess = config.authentication().publicAccess();
+                getLogger().at(Level.INFO).log("  - V2 public access: basic=%s, players=%s",
+                    publicAccess.basic(), publicAccess.players());
+                getLogger().at(Level.INFO).log("  - V2 auth tokens: %d", config.authentication().tokens().size());
+            }
 
             // Log network mode status
             if (config.isNetworkPrimary()) {
@@ -120,6 +140,9 @@ public class HyQueryPlugin extends JavaPlugin {
         } else {
             getLogger().at(Level.WARNING).log("HyQuery failed to register on any channels");
         }
+
+        registerEventListeners();
+        checkForUpdates();
     }
 
     @Override
@@ -154,6 +177,18 @@ public class HyQueryPlugin extends JavaPlugin {
 
     public HyQueryNetworkManager getNetworkManager() {
         return networkManager;
+    }
+
+    public String getPluginVersion() {
+        return pluginVersion;
+    }
+
+    public boolean isUpdateAvailable() {
+        return updateAvailable;
+    }
+
+    public String getLatestVersion() {
+        return latestVersion;
     }
 
     /**
@@ -224,7 +259,11 @@ public class HyQueryPlugin extends JavaPlugin {
         try {
             if (Files.exists(configPath)) {
                 String json = Files.readString(configPath);
-                HyQueryConfig loaded = GSON.fromJson(json, HyQueryConfig.class);
+                JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+                HyQueryConfig loaded = GSON.fromJson(root, HyQueryConfig.class);
+                if (loaded == null) {
+                    loaded = defaults;
+                }
 
                 // Use defaults for any null/missing fields (backwards compatibility)
                 this.config = new HyQueryConfig(
@@ -239,6 +278,15 @@ public class HyQueryPlugin extends JavaPlugin {
                     loaded.rateLimitBurst() > 0 ? loaded.rateLimitBurst() : defaults.rateLimitBurst(),
                     loaded.cacheTtlSeconds() > 0 ? loaded.cacheEnabled() : defaults.cacheEnabled(),
                     loaded.cacheTtlSeconds() > 0 ? loaded.cacheTtlSeconds() : defaults.cacheTtlSeconds(),
+                    root.has("v1Enabled") ? loaded.v1Enabled() : defaults.v1Enabled(),
+                    root.has("v2Enabled") ? loaded.v2Enabled() : defaults.v2Enabled(),
+                    loaded.challengeTokenValiditySeconds() > 0
+                        ? loaded.challengeTokenValiditySeconds()
+                        : defaults.challengeTokenValiditySeconds(),
+                    root.has("challengeSecret")
+                        ? (loaded.challengeSecret() != null ? loaded.challengeSecret() : defaults.challengeSecret())
+                        : defaults.challengeSecret(),
+                    resolveAuthConfig(root, loaded),
                     // Network config - apply defaults to nested object
                     HyQueryNetworkConfig.withDefaults(loaded.network())
                 );
@@ -252,9 +300,71 @@ public class HyQueryPlugin extends JavaPlugin {
                 Files.writeString(configPath, GSON.toJson(config));
                 getLogger().at(Level.INFO).log("Created default configuration at %s", configPath);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             getLogger().at(Level.WARNING).log("Failed to load/save config, using defaults: %s", e.getMessage());
             this.config = defaults;
+        }
+    }
+
+    private HyQueryAuthConfig resolveAuthConfig(JsonObject root, HyQueryConfig loaded) {
+        HyQueryAuthPermissions fallbackPublicAccess =
+            HyQueryAuthPermissions.fromLegacyShowPlayerList(loaded.showPlayerList());
+        if (root.has("authentication") && loaded.authentication() != null) {
+            return HyQueryAuthConfig.withDefaults(loaded.authentication(), fallbackPublicAccess);
+        }
+        return HyQueryAuthConfig.fromLegacyShowPlayerList(loaded.showPlayerList());
+    }
+
+    private String loadVersionFromManifest() {
+        try (InputStream is = getClass().getResourceAsStream("/manifest.json")) {
+            if (is == null) {
+                getLogger().at(Level.WARNING).log("manifest.json not found, using fallback version");
+                return "unknown";
+            }
+
+            try (InputStreamReader reader = new InputStreamReader(is, StandardCharsets.UTF_8)) {
+                ManifestInfo manifest = GSON.fromJson(reader, ManifestInfo.class);
+                return manifest != null && manifest.version() != null ? manifest.version() : "unknown";
+            }
+        } catch (IOException e) {
+            getLogger().at(Level.WARNING).log("Failed to read manifest.json: %s", e.getMessage());
+            return "unknown";
+        }
+    }
+
+    private void registerEventListeners() {
+        getEventRegistry().registerGlobal(PlayerReadyEvent.class, this::onPlayerReady);
+        getLogger().at(Level.INFO).log("Registered player ready event listener");
+    }
+
+    private void checkForUpdates() {
+        UpdateChecker.checkForUpdate(this, pluginVersion).thenAccept(newVersion -> {
+            if (newVersion != null) {
+                this.updateAvailable = true;
+                this.latestVersion = newVersion;
+                UpdateNotificationUtil.logUpdateAvailable(this, newVersion);
+            }
+        });
+    }
+
+    private void onPlayerReady(PlayerReadyEvent event) {
+        if (!updateAvailable || latestVersion == null) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        if (player.hasPermission("hyquery.admin")
+                || player.hasPermission("hyquery.admin.update_notifications")) {
+            UpdateNotificationUtil.sendUpdateNotification(this, player, latestVersion);
+            getLogger().at(Level.FINE).log(
+                    "Notified player %s about available update",
+                    player.getDisplayName());
+        }
+    }
+
+    private record ManifestInfo(String Version) {
+        String version() {
+            return Version;
         }
     }
 }
