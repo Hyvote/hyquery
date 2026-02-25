@@ -4,6 +4,6 @@
   "Version": "1.3.0",
   "Description": "UDP query protocol for Hytale servers with network mode and hub clustering support",
   "Author": "Hyvote",
-  "Main": "com.hytalefinder.hyquery.HyQueryPlugin",
+  "Main": "com.hyvote.hyquery.HyQueryPlugin",
   "ServerVersion": "2026.02.19-1a311a592"
 }
