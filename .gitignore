@@ -14,7 +14,7 @@ buildNumber.properties
 *.class
 *.log
 *.jar
-!HytaleServer.jar
+/HytaleServer.jar
 
 # IDE
 .idea/
