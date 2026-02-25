@@ -124,6 +124,10 @@ public class HyQueryPlugin extends JavaPlugin {
             getLogger().at(Level.INFO).log("  - V2 enabled: %s", config.v2Enabled());
             if (config.v2Enabled()) {
                 getLogger().at(Level.INFO).log("  - V2 challenge validity: %ds", config.challengeTokenValiditySeconds());
+                HyQueryAuthPermissions publicAccess = config.authentication().publicAccess();
+                getLogger().at(Level.INFO).log("  - V2 public access: basic=%s, players=%s",
+                    publicAccess.basic(), publicAccess.players());
+                getLogger().at(Level.INFO).log("  - V2 auth tokens: %d", config.authentication().tokens().size());
             }
 
             // Log network mode status
@@ -282,6 +286,7 @@ public class HyQueryPlugin extends JavaPlugin {
                     root.has("challengeSecret")
                         ? (loaded.challengeSecret() != null ? loaded.challengeSecret() : defaults.challengeSecret())
                         : defaults.challengeSecret(),
+                    resolveAuthConfig(root, loaded),
                     // Network config - apply defaults to nested object
                     HyQueryNetworkConfig.withDefaults(loaded.network())
                 );
@@ -299,6 +304,13 @@ public class HyQueryPlugin extends JavaPlugin {
             getLogger().at(Level.WARNING).log("Failed to load/save config, using defaults: %s", e.getMessage());
             this.config = defaults;
         }
+    }
+
+    private HyQueryAuthConfig resolveAuthConfig(JsonObject root, HyQueryConfig loaded) {
+        if (root.has("authentication") && loaded.authentication() != null) {
+            return HyQueryAuthConfig.withDefaults(loaded.authentication());
+        }
+        return HyQueryAuthConfig.fromLegacyShowPlayerList(loaded.showPlayerList());
     }
 
     private String loadVersionFromManifest() {

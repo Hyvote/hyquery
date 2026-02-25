@@ -23,6 +23,7 @@ package com.hytalefinder.hyquery;
  * @param v2Enabled         Whether OneQuery V2 request handling is enabled.
  * @param challengeTokenValiditySeconds V2 challenge token validity period in seconds.
  * @param challengeSecret   Optional V2 challenge secret (blank = ephemeral secret each start).
+ * @param authentication    OneQuery-compatible V2 endpoint access configuration.
  * @param network           Network mode configuration for multi-server setups.
  */
 public record HyQueryConfig(
@@ -40,6 +41,7 @@ public record HyQueryConfig(
     boolean v2Enabled,
     int challengeTokenValiditySeconds,
     String challengeSecret,
+    HyQueryAuthConfig authentication,
     HyQueryNetworkConfig network
 ) {
     /**
@@ -62,8 +64,9 @@ public record HyQueryConfig(
             5,              // cacheTtlSeconds (refresh every 5 seconds)
             true,           // v1Enabled
             true,           // v2Enabled
-            30,             // challengeTokenValiditySeconds
+            120,            // challengeTokenValiditySeconds
             "",             // challengeSecret (ephemeral when empty)
+            HyQueryAuthConfig.fromLegacyShowPlayerList(false), // authentication
             null            // network (disabled by default)
         );
     }

@@ -39,6 +39,7 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
     private final boolean isPrimary;
     private final boolean v1Enabled;
     private final boolean v2Enabled;
+    private final HyQueryAuthConfig authConfig;
     private final HyQueryChallengeService challengeService;
 
     public HyQueryHandler(HyQueryPlugin plugin, Logger logger,
@@ -54,6 +55,7 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
         this.isPrimary = config.isNetworkPrimary();
         this.v1Enabled = config.v1Enabled();
         this.v2Enabled = config.v2Enabled();
+        this.authConfig = HyQueryAuthConfig.withDefaults(config.authentication());
         this.challengeService = v2Enabled ? HyQueryChallengeService.fromConfig(config) : null;
 
         if (v2Enabled && (config.challengeSecret() == null || config.challengeSecret().isBlank())) {
@@ -176,6 +178,13 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
                 effectiveType = HyQueryV2Protocol.QueryType.BASIC;
             }
 
+            if (!authConfig.isAccessAllowed(effectiveType, request.authToken())) {
+                ByteBuf response = buildV2AuthRequiredResponse(ctx, request);
+                ctx.writeAndFlush(new DatagramPacket(response, sender));
+                logger.log(Level.FINE, "V2 auth required for " + effectiveType + " from " + sender);
+                return;
+            }
+
             ByteBuf response;
             if (effectiveType == HyQueryV2Protocol.QueryType.PLAYERS) {
                 response = buildV2PlayersResponse(ctx, request);
@@ -194,13 +203,25 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
     }
 
     private ByteBuf buildV2BasicResponse(ChannelHandlerContext ctx, HyQueryV2Protocol.ParsedRequest request) {
+        return buildV2BasicResponse(ctx, request, (short) 0);
+    }
+
+    private ByteBuf buildV2AuthRequiredResponse(ChannelHandlerContext ctx, HyQueryV2Protocol.ParsedRequest request) {
+        return buildV2BasicResponse(ctx, request, HyQueryV2Protocol.FLAG_RESPONSE_AUTH_REQUIRED);
+    }
+
+    private ByteBuf buildV2BasicResponse(
+        ChannelHandlerContext ctx,
+        HyQueryV2Protocol.ParsedRequest request,
+        short baseFlags
+    ) {
         HyQueryConfig config = plugin.getQueryConfig();
         HyQueryWorkerRegistry registry = getPrimaryRegistry();
 
         int onlinePlayers = Universe.get().getPlayerCount();
         int maxPlayers = plugin.getMaxPlayers();
 
-        short flags = 0;
+        short flags = baseFlags;
         if (registry != null) {
             onlinePlayers += registry.getTotalOnlinePlayers();
             maxPlayers += registry.getTotalMaxPlayers();

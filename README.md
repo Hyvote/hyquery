@@ -48,8 +48,20 @@ Configuration file: `mods/HyQuery/config.json`
   "customMotd": "§aWelcome to §l§cHytale§r§a! §6Enjoy your stay!",
   "v1Enabled": true,
   "v2Enabled": true,
-  "challengeTokenValiditySeconds": 30,
-  "challengeSecret": ""
+  "challengeTokenValiditySeconds": 120,
+  "challengeSecret": "",
+  "authentication": {
+    "publicAccess": {
+      "basic": true,
+      "players": false
+    },
+    "tokens": {
+      "admin-full-access": {
+        "basic": true,
+        "players": true
+      }
+    }
+  }
 }
 ```
 
@@ -74,8 +86,18 @@ Configuration file: `mods/HyQuery/config.json`
 | `cacheTtlSeconds` | int | `5` | Cache time-to-live in seconds |
 | `v1Enabled` | boolean | `true` | Enable legacy V1 (`HYQUERY\0`) request handling |
 | `v2Enabled` | boolean | `true` | Enable OneQuery V2 request handling |
-| `challengeTokenValiditySeconds` | int | `30` | V2 challenge validity window in seconds |
+| `challengeTokenValiditySeconds` | int | `120` | V2 challenge validity window in seconds |
 | `challengeSecret` | string | `""` | Optional V2 challenge secret (blank uses an ephemeral secret each restart) |
+
+### V2 Authentication
+
+HyQuery supports OneQuery-compatible endpoint permissions:
+
+- `authentication.publicAccess.basic` controls unauthenticated BASIC endpoint access
+- `authentication.publicAccess.players` controls unauthenticated PLAYERS endpoint access
+- `authentication.tokens` maps auth tokens to per-endpoint permissions
+
+When access is denied, HyQuery responds with `FLAG_RESPONSE_AUTH_REQUIRED` and server info payload.
 
 ## Network Mode
 
@@ -291,6 +313,7 @@ V2 response magic follows request family:
 - `HYQUERY2` requests receive `HYREPLY2`
 
 All V2 non-challenge requests require a valid challenge token tied to the sender IP.
+V2 BASIC/PLAYERS endpoints also honor `authentication` permissions and may return `AUTH_REQUIRED`.
 
 #### V1 (Legacy)
 
