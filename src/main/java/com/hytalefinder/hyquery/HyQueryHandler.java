@@ -55,7 +55,10 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
         this.isPrimary = config.isNetworkPrimary();
         this.v1Enabled = config.v1Enabled();
         this.v2Enabled = config.v2Enabled();
-        this.authConfig = HyQueryAuthConfig.withDefaults(config.authentication());
+        this.authConfig = HyQueryAuthConfig.withDefaults(
+            config.authentication(),
+            HyQueryAuthPermissions.fromLegacyShowPlayerList(config.showPlayerList())
+        );
         this.challengeService = v2Enabled ? HyQueryChallengeService.fromConfig(config) : null;
 
         if (v2Enabled && (config.challengeSecret() == null || config.challengeSecret().isBlank())) {
@@ -163,13 +166,13 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            if (!challengeService.validateToken(request.challengeToken(), sender.getAddress())) {
-                logger.log(Level.WARNING, "Dropping V2 request with invalid challenge token from " + sender);
+            if (rateLimitEnabled && !rateLimiter.tryAcquire(sender.getAddress())) {
+                logger.log(Level.FINE, "Rate limited V2 query from " + sender);
                 return;
             }
 
-            if (rateLimitEnabled && !rateLimiter.tryAcquire(sender.getAddress())) {
-                logger.log(Level.FINE, "Rate limited V2 query from " + sender);
+            if (!challengeService.validateToken(request.challengeToken(), sender.getAddress())) {
+                logger.log(Level.WARNING, "Dropping V2 request with invalid challenge token from " + sender);
                 return;
             }
 

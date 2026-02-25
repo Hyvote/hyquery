@@ -307,8 +307,10 @@ public class HyQueryPlugin extends JavaPlugin {
     }
 
     private HyQueryAuthConfig resolveAuthConfig(JsonObject root, HyQueryConfig loaded) {
+        HyQueryAuthPermissions fallbackPublicAccess =
+            HyQueryAuthPermissions.fromLegacyShowPlayerList(loaded.showPlayerList());
         if (root.has("authentication") && loaded.authentication() != null) {
-            return HyQueryAuthConfig.withDefaults(loaded.authentication());
+            return HyQueryAuthConfig.withDefaults(loaded.authentication(), fallbackPublicAccess);
         }
         return HyQueryAuthConfig.fromLegacyShowPlayerList(loaded.showPlayerList());
     }

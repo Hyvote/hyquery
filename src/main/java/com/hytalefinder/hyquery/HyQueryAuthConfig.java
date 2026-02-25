@@ -24,12 +24,21 @@ public record HyQueryAuthConfig(
     }
 
     public static HyQueryAuthConfig withDefaults(HyQueryAuthConfig config) {
+        return withDefaults(config, HyQueryAuthPermissions.defaults());
+    }
+
+    public static HyQueryAuthConfig withDefaults(
+        HyQueryAuthConfig config,
+        HyQueryAuthPermissions fallbackPublicAccess
+    ) {
+        HyQueryAuthPermissions effectiveFallback =
+            fallbackPublicAccess != null ? fallbackPublicAccess : HyQueryAuthPermissions.defaults();
         if (config == null) {
-            return defaults();
+            return new HyQueryAuthConfig(effectiveFallback, Map.of());
         }
 
         HyQueryAuthPermissions resolvedPublic =
-            config.publicAccess() != null ? config.publicAccess() : HyQueryAuthPermissions.defaults();
+            config.publicAccess() != null ? config.publicAccess() : effectiveFallback;
         Map<String, HyQueryAuthPermissions> resolvedTokens = normalizeTokens(config.tokens());
         return new HyQueryAuthConfig(resolvedPublic, resolvedTokens);
     }
