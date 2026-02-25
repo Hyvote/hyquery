@@ -78,8 +78,20 @@ public class HyQueryPlugin extends JavaPlugin {
 
         // Initialize response cache
         if (config.cacheEnabled()) {
-            cache = new HyQueryCache(this, config.cacheTtlSeconds());
-            getLogger().at(Level.INFO).log("Response caching enabled: %d second TTL", config.cacheTtlSeconds());
+            int cacheTtl = config.cacheTtlSeconds();
+            if (config.isNetworkPrimary()
+                && config.network() != null
+                && config.network().isRedisCoordinator()
+                && cacheTtl > 1) {
+                cacheTtl = 1;
+                getLogger().at(Level.INFO).log(
+                    "Response cache TTL adjusted to %d second in Redis primary mode for fresh network aggregation",
+                    cacheTtl
+                );
+            }
+
+            cache = new HyQueryCache(this, cacheTtl);
+            getLogger().at(Level.INFO).log("Response caching enabled: %d second TTL", cacheTtl);
         }
 
         // Initialize network manager (if network mode enabled)
@@ -132,10 +144,17 @@ public class HyQueryPlugin extends JavaPlugin {
 
             // Log network mode status
             if (config.isNetworkPrimary()) {
-                getLogger().at(Level.INFO).log("  - Network mode: PRIMARY");
+                String coordinator = config.network() != null ? config.network().coordinator() : "udp";
+                getLogger().at(Level.INFO).log("  - Network mode: PRIMARY (%s)", coordinator);
             } else if (config.isNetworkWorker()) {
-                getLogger().at(Level.INFO).log("  - Network mode: WORKER (-> %s:%d)",
-                    config.network().primaryHost(), config.network().primaryPort());
+                HyQueryNetworkConfig network = config.network();
+                if (network != null && network.isRedisCoordinator()) {
+                    getLogger().at(Level.INFO).log("  - Network mode: WORKER (redis namespace=%s)",
+                        network.namespace());
+                } else if (network != null) {
+                    getLogger().at(Level.INFO).log("  - Network mode: WORKER (udp -> %s)",
+                        network.getPrimaryTargets());
+                }
             }
         } else {
             getLogger().at(Level.WARNING).log("HyQuery failed to register on any channels");
