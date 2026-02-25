@@ -231,6 +231,9 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
             flags |= HyQueryV2Protocol.FLAG_RESPONSE_IS_NETWORK;
         }
 
+        String host = null;
+        int port = plugin.getGamePort();
+
         String motd = config.useCustomMotd() ? config.customMotd() : plugin.getMotd();
         String version = getServerVersion();
 
@@ -240,8 +243,8 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
             onlinePlayers,
             maxPlayers,
             version,
-            null,
-            null
+            host,
+            port
         );
 
         return HyQueryV2ResponseBuilder.buildBasicResponse(

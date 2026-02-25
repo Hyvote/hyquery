@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.List;
 import java.util.UUID;
 
@@ -15,6 +16,7 @@ public final class HyQueryV2ResponseBuilder {
 
     public static final short TLV_TYPE_SERVER_INFO = 0x0001;
     public static final short TLV_TYPE_PLAYER_LIST = 0x0002;
+    private static final String PROTOCOL_HASH = String.format(Locale.ROOT, "%08x", ProtocolSettings.PROTOCOL_CRC);
 
     private static final int TLV_HEADER_SIZE = 4;
     private static final int PLAYER_LIST_HEADER_SIZE = 12;
@@ -125,7 +127,7 @@ public final class HyQueryV2ResponseBuilder {
             maxPlayers,
             version,
             ProtocolSettings.PROTOCOL_VERSION,
-            ProtocolSettings.PROTOCOL_HASH,
+            PROTOCOL_HASH,
             host,
             port
         );
