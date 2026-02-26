@@ -1,6 +1,7 @@
 package com.hyvote.hyquery;
 
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Network configuration for HyQuery multi-server mode.
@@ -28,6 +29,9 @@ public record HyQueryNetworkConfig(
     HyQueryRedisConfig redis,
     HyQueryNetworkObservabilityConfig observability
 ) {
+    private static final String RANDOM_ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    private static final int RANDOM_ID_LENGTH = 8;
+
     public static final String ROLE_PRIMARY = "primary";
     public static final String ROLE_WORKER = "worker";
 
@@ -135,6 +139,7 @@ public record HyQueryNetworkConfig(
 
         HyQueryNetworkConfig def = defaults();
         String normalizedCoordinator = normalizeCoordinator(loaded.coordinator(), def.coordinator());
+        String resolvedWorkerId = resolveWorkerId(loaded.id(), normalizedCoordinator, def.id());
 
         return new HyQueryNetworkConfig(
             loaded.enabled(),
@@ -145,7 +150,7 @@ public record HyQueryNetworkConfig(
             loaded.staleAfterSeconds() > 0 ? loaded.staleAfterSeconds() : def.staleAfterSeconds(),
             loaded.workerTimeoutSeconds() > 0 ? loaded.workerTimeoutSeconds() : def.workerTimeoutSeconds(),
             loaded.workers() != null ? loaded.workers() : def.workers(),
-            loaded.id() != null ? loaded.id() : def.id(),
+            resolvedWorkerId,
             loaded.primaryHost() != null ? loaded.primaryHost() : def.primaryHost(),
             loaded.primaryPort() > 0 ? loaded.primaryPort() : def.primaryPort(),
             loaded.primaries() != null ? loaded.primaries() : def.primaries(),
@@ -155,6 +160,15 @@ public record HyQueryNetworkConfig(
             HyQueryRedisConfig.withDefaults(loaded.redis()),
             HyQueryNetworkObservabilityConfig.withDefaults(loaded.observability())
         );
+    }
+
+    static String generateRandomWorkerId() {
+        StringBuilder id = new StringBuilder("server-");
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        for (int i = 0; i < RANDOM_ID_LENGTH; i++) {
+            id.append(RANDOM_ID_CHARS.charAt(random.nextInt(RANDOM_ID_CHARS.length())));
+        }
+        return id.toString();
     }
 
     private static String normalizeCoordinator(String raw, String fallback) {
@@ -167,5 +181,15 @@ public record HyQueryNetworkConfig(
             return normalized;
         }
         return fallback;
+    }
+
+    private static String resolveWorkerId(String id, String coordinator, String fallback) {
+        if (id == null || id.isBlank()) {
+            if (COORDINATOR_REDIS.equals(coordinator)) {
+                return generateRandomWorkerId();
+            }
+            return fallback;
+        }
+        return id.trim();
     }
 }

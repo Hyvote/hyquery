@@ -9,7 +9,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -28,8 +27,6 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
     private static final String KEY_PREFIX = "hyquery";
     private static final long AGGREGATE_CACHE_TTL_MILLIS = 1_000L;
     private static final long MAX_PUBLISH_BACKOFF_MILLIS = 60_000L;
-    private static final String RANDOM_ID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    private static final int RANDOM_ID_LENGTH = 8;
 
     private final HyQueryPlugin plugin;
     private final HyQueryNetworkConfig config;
@@ -89,7 +86,7 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
 
         String configuredWorkerId = config.id() != null ? config.id().trim() : "";
         if (configuredWorkerId.isEmpty()) {
-            this.workerServerId = generateRandomWorkerId();
+            this.workerServerId = HyQueryNetworkConfig.generateRandomWorkerId();
             this.workerServerIdGenerated = true;
         } else {
             this.workerServerId = configuredWorkerId;
@@ -424,15 +421,6 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
             backoffMillis = Math.min(MAX_PUBLISH_BACKOFF_MILLIS, backoffMillis * 2L);
         }
         return Math.max(publishIntervalMillis, backoffMillis);
-    }
-
-    private String generateRandomWorkerId() {
-        StringBuilder id = new StringBuilder(RANDOM_ID_LENGTH);
-        ThreadLocalRandom random = ThreadLocalRandom.current();
-        for (int i = 0; i < RANDOM_ID_LENGTH; i++) {
-            id.append(RANDOM_ID_CHARS.charAt(random.nextInt(RANDOM_ID_CHARS.length())));
-        }
-        return id.toString();
     }
 
     private String indexKey(String namespace) {

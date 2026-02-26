@@ -6,6 +6,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HyQueryNetworkConfigTest {
@@ -168,5 +169,32 @@ class HyQueryNetworkConfigTest {
         assertTrue(resolved.redis().tls());
         assertEquals("hyquery-user", resolved.redis().username());
         assertEquals("hyquery-pass", resolved.redis().password());
+    }
+
+    @Test
+    void withDefaultsGeneratesRandomRedisWorkerIdWhenMissing() {
+        HyQueryNetworkConfig loaded = new HyQueryNetworkConfig(
+            true,
+            HyQueryNetworkConfig.ROLE_WORKER,
+            HyQueryNetworkConfig.COORDINATOR_REDIS,
+            "prod",
+            false,
+            10,
+            30,
+            List.of(),
+            null,
+            "localhost",
+            5520,
+            List.of(),
+            "secret",
+            5,
+            false,
+            HyQueryRedisConfig.defaults(),
+            HyQueryNetworkObservabilityConfig.defaults()
+        );
+
+        HyQueryNetworkConfig resolved = HyQueryNetworkConfig.withDefaults(loaded);
+        assertNotEquals("server-1", resolved.id());
+        assertTrue(resolved.id().matches("server-[A-Z0-9]{8}"));
     }
 }
