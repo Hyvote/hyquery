@@ -36,7 +36,6 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
     private final HyQueryCache cache;
     private final boolean rateLimitEnabled;
     private final boolean cacheEnabled;
-    private final boolean isPrimary;
     private final boolean v1Enabled;
     private final boolean v2Enabled;
     private final HyQueryAuthConfig authConfig;
@@ -52,7 +51,6 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
         HyQueryConfig config = plugin.getQueryConfig();
         this.rateLimitEnabled = config.rateLimitEnabled();
         this.cacheEnabled = config.cacheEnabled();
-        this.isPrimary = config.isNetworkPrimary();
         this.v1Enabled = config.v1Enabled();
         this.v2Enabled = config.v2Enabled();
         this.authConfig = HyQueryAuthConfig.withDefaults(
@@ -86,7 +84,7 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            if (isPrimary && HyQueryProtocol.isStatusPacket(content)) {
+            if (HyQueryProtocol.isStatusPacket(content) && canHandleStatusPackets()) {
                 handleStatusPacket(ctx, packet);
                 return;
             }
@@ -219,15 +217,15 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
         short baseFlags
     ) {
         HyQueryConfig config = plugin.getQueryConfig();
-        HyQueryWorkerRegistry registry = getPrimaryRegistry();
+        HyQueryNetworkAggregate aggregate = getPrimaryAggregate(false);
 
         int onlinePlayers = Universe.get().getPlayerCount();
         int maxPlayers = plugin.getMaxPlayers();
 
         short flags = baseFlags;
-        if (registry != null) {
-            onlinePlayers += registry.getTotalOnlinePlayers();
-            maxPlayers += registry.getTotalMaxPlayers();
+        if (isNetworkPrimaryResponder()) {
+            onlinePlayers += aggregate.totalOnlinePlayers();
+            maxPlayers += aggregate.totalMaxPlayers();
             flags |= HyQueryV2Protocol.FLAG_RESPONSE_IS_NETWORK;
         }
 
@@ -257,7 +255,7 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
     }
 
     private ByteBuf buildV2PlayersResponse(ChannelHandlerContext ctx, HyQueryV2Protocol.ParsedRequest request) {
-        HyQueryWorkerRegistry registry = getPrimaryRegistry();
+        HyQueryNetworkAggregate aggregate = getPrimaryAggregate(true);
 
         List<HyQueryV2ResponseBuilder.PlayerInfo> players = new ArrayList<>();
         for (PlayerRef player : Universe.get().getPlayers()) {
@@ -265,9 +263,9 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
         }
 
         short flags = 0;
-        if (registry != null) {
+        if (isNetworkPrimaryResponder()) {
             flags |= HyQueryV2Protocol.FLAG_RESPONSE_IS_NETWORK;
-            for (HyQueryWorkerRegistry.NetworkPlayer networkPlayer : registry.getAllPlayers()) {
+            for (HyQueryNetworkAggregate.NetworkPlayer networkPlayer : aggregate.networkPlayers()) {
                 players.add(new HyQueryV2ResponseBuilder.PlayerInfo(networkPlayer.username(), networkPlayer.uuid()));
             }
         }
@@ -290,12 +288,21 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
         return uuid.toString();
     }
 
-    private HyQueryWorkerRegistry getPrimaryRegistry() {
+    private HyQueryNetworkAggregate getPrimaryAggregate(boolean includePlayers) {
         HyQueryNetworkManager networkManager = plugin.getNetworkManager();
         if (plugin.getQueryConfig().isNetworkPrimary() && networkManager != null) {
-            return networkManager.getRegistry();
+            return networkManager.getAggregate(includePlayers);
         }
-        return null;
+        return HyQueryNetworkAggregate.empty();
+    }
+
+    private boolean isNetworkPrimaryResponder() {
+        return plugin.getQueryConfig().isNetworkPrimary() && plugin.getNetworkManager() != null;
+    }
+
+    private boolean canHandleStatusPackets() {
+        HyQueryNetworkManager networkManager = plugin.getNetworkManager();
+        return networkManager != null && networkManager.handlesStatusPackets();
     }
 
     private String getServerVersion() {

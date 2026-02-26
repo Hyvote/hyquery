@@ -67,7 +67,7 @@ public record HyQueryConfig(
             120,            // challengeTokenValiditySeconds
             "",             // challengeSecret (ephemeral when empty)
             HyQueryAuthConfig.fromLegacyShowPlayerList(false), // authentication
-            null            // network (disabled by default)
+            HyQueryNetworkConfig.defaults() // network (disabled by default)
         );
     }
 

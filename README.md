@@ -103,6 +103,14 @@ When access is denied, HyQuery responds with `FLAG_RESPONSE_AUTH_REQUIRED` and s
 
 HyQuery supports multi-server network configurations with **primary** and **worker** roles. This allows server networks to aggregate player counts and information across multiple servers.
 
+Network coordination now supports two modes:
+- `udp` (default): existing worker->primary P2P status packets with HMAC verification
+- `redis`: workers publish snapshots to Redis, primaries read snapshots for network-wide responses
+
+`network.role` semantics are unchanged in both modes:
+- `primary` serves network-wide responses
+- `worker` publishes only (local query responses remain local)
+
 ### Architecture
 
 ```
@@ -139,6 +147,7 @@ HyQuery supports multi-server network configurations with **primary** and **work
   "network": {
     "enabled": true,
     "role": "primary",
+    "coordinator": "udp",
     "workerTimeoutSeconds": 30,
     "workers": [
       { "id": "game-1", "key": "your-secret-key-here" },
@@ -176,6 +185,7 @@ Worker IDs support wildcard matching with `*` (e.g., `minigame-*` matches `minig
   "network": {
     "enabled": true,
     "role": "worker",
+    "coordinator": "udp",
     "id": "game-1",
     "primaryHost": "hub.example.com",
     "primaryPort": 5520,
@@ -236,6 +246,7 @@ Use the `primaries` array instead of single `primaryHost`/`primaryPort`:
   "network": {
     "enabled": true,
     "role": "worker",
+    "coordinator": "udp",
     "id": "game-1",
     "primaries": [
       { "host": "us-hub.example.com", "port": 5520 },
@@ -260,6 +271,10 @@ Use the `primaries` array instead of single `primaryHost`/`primaryPort`:
 |--------|------|---------|-------------|
 | `network.enabled` | boolean | `false` | Enable network mode |
 | `network.role` | string | `"worker"` | Server role: `"primary"` or `"worker"` |
+| `network.coordinator` | string | `"udp"` | Coordinator mode: `"udp"` or `"redis"` |
+| `network.namespace` | string | `"global"` | Redis namespace for publish/read scope |
+| `network.includeGlobalNamespace` | boolean | `false` | In Redis primary mode, include `global` namespace when reading |
+| `network.staleAfterSeconds` | int | `10` | Redis snapshot stale timeout |
 | `network.logStatusUpdates` | boolean | `false` | Log status update activity |
 
 **Primary-only:**
@@ -279,6 +294,106 @@ Use the `primaries` array instead of single `primaryHost`/`primaryPort`:
 | `network.primaries` | array | `[]` | Hub clustering: `[{host, port}, ...]` |
 | `network.key` | string | `"change-me"` | Shared HMAC secret |
 | `network.updateIntervalSeconds` | int | `5` | Update interval in seconds |
+
+**Redis-only (`network.coordinator = "redis"`):**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `network.redis.host` | string | `"localhost"` | Redis host |
+| `network.redis.port` | int | `6379` | Redis port (single instance v1) |
+| `network.redis.username` | string | `""` | Optional ACL username |
+| `network.redis.password` | string | `""` | Optional ACL password |
+| `network.redis.database` | int | `0` | Redis database index |
+| `network.redis.tls` | boolean | `false` | Use TLS for Redis connection |
+| `network.redis.connectTimeoutMillis` | int | `1000` | Redis connect timeout |
+| `network.redis.readTimeoutMillis` | int | `1000` | Redis command read timeout |
+| `network.redis.publishIntervalSeconds` | int | `5` | Worker publish interval |
+| `network.redis.requireAvailable` | boolean | `true` | v1 enforces hard-fail when Redis is unavailable |
+
+**Observability:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `network.observability.logLevel` | string | `"info"` | Network log verbosity: `error`, `warn`, `info`, `debug` |
+| `network.observability.metricsEnabled` | boolean | `true` | Emit periodic network metrics summaries |
+| `network.observability.metricsDetail` | string | `"basic"` | Metrics detail: `basic` or `detailed` |
+
+### Redis Mode Configuration
+
+Primary (network responder):
+
+```json
+{
+  "enabled": true,
+  "showPlayerList": true,
+  "showPlugins": false,
+  "network": {
+    "enabled": true,
+    "role": "primary",
+    "coordinator": "redis",
+    "namespace": "prod-us",
+    "includeGlobalNamespace": true,
+    "staleAfterSeconds": 10,
+    "redis": {
+      "host": "redis.example.com",
+      "port": 6379,
+      "username": "hyquery",
+      "password": "REPLACE_ME",
+      "database": 0,
+      "tls": true,
+      "connectTimeoutMillis": 1000,
+      "readTimeoutMillis": 1000,
+      "publishIntervalSeconds": 5,
+      "requireAvailable": true
+    },
+    "observability": {
+      "logLevel": "info",
+      "metricsEnabled": true,
+      "metricsDetail": "basic"
+    }
+  }
+}
+```
+
+Worker (publisher only):
+
+```json
+{
+  "enabled": true,
+  "network": {
+    "enabled": true,
+    "role": "worker",
+    "coordinator": "redis",
+    "id": "game-1",
+    "namespace": "prod-us",
+    "staleAfterSeconds": 10,
+    "redis": {
+      "host": "redis.example.com",
+      "port": 6379,
+      "username": "hyquery",
+      "password": "REPLACE_ME",
+      "database": 0,
+      "tls": true,
+      "connectTimeoutMillis": 1000,
+      "readTimeoutMillis": 1000,
+      "publishIntervalSeconds": 5,
+      "requireAvailable": true
+    }
+  }
+}
+```
+
+Redis mode operational notes:
+- Startup hard-fails if Redis health check fails.
+- Runtime Redis failures fail closed (no silent local-only fallback for network-wide responses).
+- v1 trust model is Redis ACL/TLS only (no additional worker-signing in Redis mode).
+
+### Migration Notes
+
+- Existing configs remain compatible: missing `network.coordinator` defaults to `udp`.
+- Existing UDP worker HMAC behavior is unchanged.
+- `network.role` values and semantics are unchanged.
+- To migrate to Redis, set `network.coordinator` to `redis` and fill `network.redis` settings.
 
 ### Minecraft Color Codes
 

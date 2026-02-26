@@ -134,9 +134,9 @@ public final class HyQueryProtocol {
         int maxPlayers = getMaxPlayers();
 
         if (plugin.getQueryConfig().isNetworkPrimary() && plugin.getNetworkManager() != null) {
-            HyQueryWorkerRegistry registry = plugin.getNetworkManager().getRegistry();
-            onlinePlayers += registry.getTotalOnlinePlayers();
-            maxPlayers += registry.getTotalMaxPlayers();
+            HyQueryNetworkAggregate aggregate = plugin.getNetworkManager().getAggregate(false);
+            onlinePlayers += aggregate.totalOnlinePlayers();
+            maxPlayers += aggregate.totalMaxPlayers();
         }
 
         buf.writeIntLE(onlinePlayers);
@@ -175,11 +175,11 @@ public final class HyQueryProtocol {
         int onlinePlayers = universe.getPlayerCount();
         int maxPlayers = getMaxPlayers();
 
-        HyQueryWorkerRegistry registry = null;
+        HyQueryNetworkAggregate aggregate = HyQueryNetworkAggregate.empty();
         if (config.isNetworkPrimary() && plugin.getNetworkManager() != null) {
-            registry = plugin.getNetworkManager().getRegistry();
-            onlinePlayers += registry.getTotalOnlinePlayers();
-            maxPlayers += registry.getTotalMaxPlayers();
+            aggregate = plugin.getNetworkManager().getAggregate(true);
+            onlinePlayers += aggregate.totalOnlinePlayers();
+            maxPlayers += aggregate.totalMaxPlayers();
         }
 
         buf.writeIntLE(onlinePlayers);
@@ -201,8 +201,8 @@ public final class HyQueryProtocol {
             }
 
             // Network players (if primary)
-            if (registry != null) {
-                for (HyQueryWorkerRegistry.NetworkPlayer np : registry.getAllPlayers()) {
+            if (config.isNetworkPrimary() && plugin.getNetworkManager() != null) {
+                for (HyQueryNetworkAggregate.NetworkPlayer np : aggregate.networkPlayers()) {
                     allPlayers.add(new PlayerData(np.username(), np.uuid(), np.serverId()));
                 }
             }
@@ -231,22 +231,20 @@ public final class HyQueryProtocol {
         }
 
         // Network server list (if primary)
-        if (registry != null) {
-            var workers = registry.getAllWorkers();
+        if (config.isNetworkPrimary() && plugin.getNetworkManager() != null) {
+            var workers = aggregate.remoteServers();
             buf.writeIntLE(workers.size());
-            int timeoutSeconds = registry.getTimeoutSeconds();
 
-            for (HyQueryWorkerState worker : workers) {
-                writeString(buf, worker.getId());
-                writeString(buf, worker.getServerName());
-                writeString(buf, worker.getMotd());
-                buf.writeIntLE(worker.getOnlinePlayers());
-                buf.writeIntLE(worker.getMaxPlayers());
-                buf.writeByte(worker.getStatus(timeoutSeconds));
-                buf.writeLongLE(worker.getLastUpdateMillis());
+            for (HyQueryNetworkAggregate.RemoteServerSnapshot worker : workers) {
+                writeString(buf, worker.serverId());
+                writeString(buf, worker.serverName());
+                writeString(buf, worker.motd());
+                buf.writeIntLE(worker.onlinePlayers());
+                buf.writeIntLE(worker.maxPlayers());
+                buf.writeByte(worker.status());
+                buf.writeLongLE(worker.updatedAtMillis());
 
-                // Player list for this worker
-                List<HyQueryWorkerState.PlayerInfo> workerPlayers = worker.getPlayers();
+                List<HyQueryWorkerState.PlayerInfo> workerPlayers = worker.players();
                 buf.writeIntLE(workerPlayers.size());
                 for (HyQueryWorkerState.PlayerInfo player : workerPlayers) {
                     writeString(buf, player.username());
