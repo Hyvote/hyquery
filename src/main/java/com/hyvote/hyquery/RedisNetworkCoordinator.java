@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -26,6 +27,9 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
 
     private static final String KEY_PREFIX = "hyquery";
     private static final long AGGREGATE_CACHE_TTL_MILLIS = 1_000L;
+    private static final long MAX_PUBLISH_BACKOFF_MILLIS = 60_000L;
+    private static final String RANDOM_ID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    private static final int RANDOM_ID_LENGTH = 8;
 
     private final HyQueryPlugin plugin;
     private final HyQueryNetworkConfig config;
@@ -38,6 +42,10 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
     private final String publishNamespace;
     private final long staleAfterMillis;
     private final long snapshotTtlSeconds;
+    private final long publishIntervalSeconds;
+    private final long publishIntervalMillis;
+    private final String workerServerId;
+    private final boolean workerServerIdGenerated;
 
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> publishTask;
@@ -45,6 +53,8 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
     private volatile boolean healthy;
     private volatile CachedAggregate cachedWithoutPlayers;
     private volatile CachedAggregate cachedWithPlayers;
+    private volatile long nextPublishAttemptAtMillis;
+    private volatile int consecutivePublishFailures;
 
     public RedisNetworkCoordinator(
         HyQueryPlugin plugin,
@@ -70,10 +80,21 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
         this.readNamespaces = config.getReadNamespaces();
         this.publishNamespace = HyQueryNetworkConfig.normalizedNamespace(config.namespace());
         this.staleAfterMillis = Math.max(1, config.staleAfterSeconds()) * 1_000L;
+        this.publishIntervalSeconds = Math.max(1, config.redis().publishIntervalSeconds());
+        this.publishIntervalMillis = publishIntervalSeconds * 1_000L;
         this.snapshotTtlSeconds = Math.max(
             1L,
-            Math.max(config.staleAfterSeconds() * 2L, config.redis().publishIntervalSeconds() * 3L)
+            Math.max(config.staleAfterSeconds() * 2L, publishIntervalSeconds * 3L)
         );
+
+        String configuredWorkerId = config.id() != null ? config.id().trim() : "";
+        if (configuredWorkerId.isEmpty()) {
+            this.workerServerId = generateRandomWorkerId();
+            this.workerServerIdGenerated = true;
+        } else {
+            this.workerServerId = configuredWorkerId;
+            this.workerServerIdGenerated = false;
+        }
     }
 
     @Override
@@ -101,6 +122,9 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
         observability.info("  - Redis TLS: " + config.redis().tls());
         observability.info("  - Redis ACL username configured: "
             + (config.redis().username() != null && !config.redis().username().isBlank()));
+        if (config.isWorker() && workerServerIdGenerated) {
+            observability.warn("network.id is missing/blank; generated worker ID for this runtime: " + workerServerId);
+        }
 
         if (config.isWorker()) {
             startPublisher();
@@ -125,6 +149,9 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
             } catch (Exception ignored) {
             }
         }
+
+        consecutivePublishFailures = 0;
+        nextPublishAttemptAtMillis = 0L;
     }
 
     @Override
@@ -157,8 +184,6 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
     }
 
     private void startPublisher() {
-        int publishIntervalSeconds = Math.max(1, config.redis().publishIntervalSeconds());
-
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "HyQuery-Redis-Worker");
             t.setDaemon(true);
@@ -168,15 +193,20 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
         publishTask = scheduler.scheduleAtFixedRate(
             this::publishLocalSnapshot,
             0,
-            publishIntervalSeconds,
-            TimeUnit.SECONDS
+            publishIntervalMillis,
+            TimeUnit.MILLISECONDS
         );
 
         observability.info("Redis worker snapshot publishing started (interval=" + publishIntervalSeconds + "s)");
     }
 
     private void publishLocalSnapshot() {
-        long startMillis = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
+        if (now < nextPublishAttemptAtMillis) {
+            return;
+        }
+
+        long startMillis = now;
         observability.recordPublishAttempt();
 
         try {
@@ -195,6 +225,12 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
             );
 
             healthy = true;
+            if (consecutivePublishFailures > 0) {
+                observability.warn("Redis publish recovered after " + consecutivePublishFailures
+                    + " consecutive failure(s)");
+            }
+            consecutivePublishFailures = 0;
+            nextPublishAttemptAtMillis = 0L;
             observability.recordPublishSuccess(System.currentTimeMillis() - startMillis);
 
             if (config.logStatusUpdates()) {
@@ -204,7 +240,7 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
 
         } catch (Exception e) {
             observability.recordPublishFailure();
-            handleRuntimeFailure("publish", e);
+            handlePublishFailure(e);
         }
     }
 
@@ -309,7 +345,7 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
         HyQueryConfig queryConfig = plugin.getQueryConfig();
 
         RedisSnapshotPayload payload = new RedisSnapshotPayload();
-        payload.serverId = config.id() != null && !config.id().isBlank() ? config.id() : "server-unknown";
+        payload.serverId = workerServerId;
         payload.serverName = plugin.getServerName();
         payload.motd = queryConfig.useCustomMotd() ? queryConfig.customMotd() : plugin.getMotd();
         payload.onlinePlayers = universe.getPlayerCount();
@@ -368,6 +404,35 @@ public class RedisNetworkCoordinator implements HyQueryNetworkCoordinator {
         String message = "Redis coordinator " + operation + " failed (hard-fail enforced): " + e.getMessage();
         observability.error(message);
         throw new IllegalStateException(message, e);
+    }
+
+    private void handlePublishFailure(Exception e) {
+        healthy = false;
+        consecutivePublishFailures++;
+
+        long backoffMillis = computePublishBackoffMillis(consecutivePublishFailures);
+        nextPublishAttemptAtMillis = System.currentTimeMillis() + backoffMillis;
+
+        observability.warn("Redis publish failed (" + consecutivePublishFailures + " consecutive failure(s)): "
+            + e.getMessage() + ". Backing off for " + backoffMillis + "ms.");
+    }
+
+    private long computePublishBackoffMillis(int failures) {
+        long backoffMillis = publishIntervalMillis;
+        int shifts = Math.max(0, failures - 1);
+        for (int i = 0; i < shifts && backoffMillis < MAX_PUBLISH_BACKOFF_MILLIS; i++) {
+            backoffMillis = Math.min(MAX_PUBLISH_BACKOFF_MILLIS, backoffMillis * 2L);
+        }
+        return Math.max(publishIntervalMillis, backoffMillis);
+    }
+
+    private String generateRandomWorkerId() {
+        StringBuilder id = new StringBuilder(RANDOM_ID_LENGTH);
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        for (int i = 0; i < RANDOM_ID_LENGTH; i++) {
+            id.append(RANDOM_ID_CHARS.charAt(random.nextInt(RANDOM_ID_CHARS.length())));
+        }
+        return id.toString();
     }
 
     private String indexKey(String namespace) {
