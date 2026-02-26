@@ -148,8 +148,12 @@ public final class UpdateChecker {
         if (version == null || version.isBlank()) {
             return "0";
         }
-        int dashIndex = version.indexOf('-');
-        return dashIndex > 0 ? version.substring(0, dashIndex) : version;
+        String normalized = version.trim();
+        if (normalized.startsWith("v") || normalized.startsWith("V")) {
+            normalized = normalized.substring(1);
+        }
+        int dashIndex = normalized.indexOf('-');
+        return dashIndex > 0 ? normalized.substring(0, dashIndex) : normalized;
     }
 
     private static int parseVersionPart(String part) {
