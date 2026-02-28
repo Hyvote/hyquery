@@ -96,7 +96,15 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
             }
         }
 
-        ctx.fireChannelRead(msg);
+        try {
+            ctx.fireChannelRead(msg);
+        } catch (Exception e) {
+            if (isQuicCryptoError(e)) {
+                logger.log(Level.FINE, "QUIC crypto handshake failed for incoming connection: " + e.getMessage());
+            } else {
+                throw e;
+            }
+        }
     }
 
     private void handleV1Query(ChannelHandlerContext ctx, DatagramPacket packet) {
@@ -368,6 +376,22 @@ public class HyQueryHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        logger.log(Level.WARNING, "Exception in HyQuery handler: " + cause.getMessage());
+        if (isQuicCryptoError(cause)) {
+            logger.log(Level.FINE, "QUIC crypto error (expected for incompatible clients): " + cause.getMessage());
+        } else {
+            logger.log(Level.WARNING, "Exception in HyQuery handler: " + cause.getMessage());
+        }
+    }
+
+    private static boolean isQuicCryptoError(Throwable t) {
+        Throwable current = t;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains("QUICHE_ERR_CRYPTO_FAIL")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }
