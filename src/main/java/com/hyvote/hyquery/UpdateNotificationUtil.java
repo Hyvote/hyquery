@@ -26,10 +26,10 @@ public final class UpdateNotificationUtil {
                 .color("blue")
                 .link(UpdateChecker.getGitHubReleasesUrl());
 
-        player.sendMessage(updateLine);
-        player.sendMessage(Message.join(downloadPrefix, curseForgeLink, separator, githubLink));
+        PlayerCompat.sendMessage(player, updateLine);
+        PlayerCompat.sendMessage(player, Message.join(downloadPrefix, curseForgeLink, separator, githubLink));
         plugin.getLogger().at(Level.FINE).log(
-                "Sent update notification to player %s", player.getDisplayName());
+                "Sent update notification to player %s", PlayerCompat.getDisplayName(player));
     }
 
     public static void logUpdateAvailable(HyQueryPlugin plugin, String latestVersion) {

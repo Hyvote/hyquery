@@ -13,7 +13,7 @@
     <description>UDP query protocol for Hytale servers</description>
 
     <properties>
-        <revision>v2.0.0</revision>
+        <revision>v2.0.1</revision>
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
