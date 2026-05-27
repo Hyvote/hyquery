@@ -20,6 +20,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.logging.Level;
 
 /**
@@ -107,7 +108,13 @@ public class HyQueryPlugin extends JavaPlugin {
 
         // Register handler on all listener channels
         int registeredCount = 0;
-        for (Channel channel : ServerManager.get().getListeners()) {
+        for (Object listener : getServerListeners()) {
+            Channel channel = resolveChannel(listener);
+            if (channel == null) {
+                getLogger().at(Level.WARNING).log("Skipping unrecognized listener type: %s",
+                        listener.getClass().getName());
+                continue;
+            }
             try {
                 // Add handler at the front of the pipeline (before QUIC codec)
                 channel.pipeline().addFirst(HANDLER_NAME, queryHandler);
@@ -173,7 +180,11 @@ public class HyQueryPlugin extends JavaPlugin {
         }
 
         // Remove handler from all channels
-        for (Channel channel : ServerManager.get().getListeners()) {
+        for (Object listener : getServerListeners()) {
+            Channel channel = resolveChannel(listener);
+            if (channel == null) {
+                continue;
+            }
             try {
                 if (channel.pipeline().get(HANDLER_NAME) != null) {
                     channel.pipeline().remove(HANDLER_NAME);
@@ -208,6 +219,28 @@ public class HyQueryPlugin extends JavaPlugin {
 
     public String getLatestVersion() {
         return latestVersion;
+    }
+
+    // Returned as a raw List so the enhanced-for loop doesn't emit an implicit
+    // checkcast to Channel — the new server-core returns ServerListener entries,
+    // not Channels, and the cast would throw ClassCastException on iteration.
+    @SuppressWarnings("rawtypes")
+    private static List getServerListeners() {
+        return ServerManager.get().getListeners();
+    }
+
+    // Pre-0.5: getListeners() returns List<Channel> directly.
+    // 0.5+:    each entry is a NettyChannelServerListener record exposing channel().
+    private static Channel resolveChannel(Object listener) {
+        if (listener instanceof Channel) {
+            return (Channel) listener;
+        }
+        try {
+            Object result = listener.getClass().getMethod("channel").invoke(listener);
+            return (result instanceof Channel) ? (Channel) result : null;
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
     }
 
     /**
@@ -372,12 +405,12 @@ public class HyQueryPlugin extends JavaPlugin {
         }
 
         Player player = event.getPlayer();
-        if (player.hasPermission("hyquery.admin")
-                || player.hasPermission("hyquery.admin.update_notifications")) {
+        if (PlayerCompat.hasPermission(player, "hyquery.admin")
+                || PlayerCompat.hasPermission(player, "hyquery.admin.update_notifications")) {
             UpdateNotificationUtil.sendUpdateNotification(this, player, latestVersion);
             getLogger().at(Level.FINE).log(
                     "Notified player %s about available update",
-                    player.getDisplayName());
+                    PlayerCompat.getDisplayName(player));
         }
     }
 
